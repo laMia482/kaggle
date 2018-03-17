@@ -22,9 +22,15 @@ class Net(BaseNet):
     '''
     '''
     network = tl.layers.InputLayer(self._inputs, name = 'input_layer')
-    for id, val in enumerate([800, 800, 800, 800]):
-      network = tl.layers.DenseLayer(network, n_units = val, act = act_fn.swish, name = 'dense' + str(id))
-      network = tl.layers.DropoutLayer(network, keep = 0.8, is_fix = True, name = 'drop' + str(id))
+    network = tl.layers.FlattenLayer(network, name = 'flatten1')
+    end_points = [network]
+    for id, val in enumerate([256, 1024, 512, 256, 1024, 512, 512, 1024]):
+      # network = tl.layers.DropoutLayer(network, keep = 0.8, is_fix = True, name = 'drop' + str(id))
+      network = tl.layers.DenseLayer(network, n_units = val, act = tf.nn.relu, name = 'dense' + str(id))
+      end_points += [network]
+    network = tl.layers.ConcatLayer(end_points, 1, name = 'concat')
+    network = tl.layers.DenseLayer(network, n_units = 512, act = act_fn.l2norm, name = 'dense')
+    # network = tl.layers.DropoutLayer(network, keep = 0.8, is_fix = True, name = 'drop')
     network = tl.layers.DenseLayer(network, n_units = 2, act = tf.identity, name = 'output')
     return network
 
@@ -41,12 +47,18 @@ class Net(BaseNet):
         if id == 0:
           continue
         col = []
-        for col_id in [2, 5, 6, 7]:
-          val = 0 if row[col_id] == '' else float(row[col_id])
+        frac = [1., 1. / 5., 1., 1.]
+        for col_id, col_val in enumerate([2, 5, 6, 7]):
+          val = 0 if row[col_val] == '' else frac[col_id] * float(row[col_val])
           col += [val]
         col += [0.0 if row[4] == 'male' else 1.0]
-        X.append(col)
-        Y.append(0 if row[1] == '' else int(row[1]))
+        x = col
+        # for col_1 in col:
+        #   for col_2 in col:
+        #     x.append(col_1 * col_2)
+        X.append(x)
+        y = 0 if row[1] == '' else int(row[1])
+        Y.append(y)
     # for id, val in enumerate(x):
       # print('id: {}, val: {}'.format(id, val) + ', {}'.format(y[id]))
     return np.asarray(X), np.asarray(Y)
@@ -55,14 +67,18 @@ def main(_):
   '''
   '''
   model = Model(cfg = cfg, input_network = Net)
-  x, y = model.get_model().load_dataset(filename = os.path.join('data', 'train.csv'))  
+  x, y = model.get_model().load_dataset(filename = os.path.join('data', 'train.csv'))
+  x1, y1 = x[:450], y[:450]
+  x2, y2 = x[450:], y[450:]
+  # np.random.shuffle(x)
+  # np.random.shuffle(y)
   # train
   if cfg.is_train is True:
-    x1, y1 = x[:400], y[:400]
-    model.train(x1, y1)
+    for lr in [1.0, 0.1, 0.01, 1.0, 0.001, 0.01]:
+      print('learning rate turns to {}'.format(lr))
+      model.train(x = x1, y = y1, learning_rate = lr, x_test = x2, y_test = y2, batch_size_test = y2.shape[0])
   # eval
   if cfg.is_eval is True:
-    x2, y2 = x[400:], y[400:]
     model.eval(x2, y2)
   # test
   if cfg.is_predict is True:
